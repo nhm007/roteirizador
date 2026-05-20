@@ -7,9 +7,12 @@ from streamlit_folium import st_folium
 
 st.set_page_config(page_title="Roteirizador", layout="wide")
 
-st.title("🗺️ Roteirizador com Mapa")
+st.title("🗺️ Roteirizador com Mapa (v2 estável)")
 
 file = st.file_uploader("Enviar Excel", type=["xlsx"])
+
+if "resultado" not in st.session_state:
+    st.session_state.resultado = None
 
 def calcular_rota(df):
     coords = list(zip(df['lat'], df['lon']))
@@ -60,26 +63,29 @@ if file:
         st.error("Arquivo inválido")
         st.stop()
 
+    st.subheader("Dados carregados")
     st.dataframe(df)
 
-    if st.button("Gerar rota"):
+    if st.button("Gerar rota otimizada"):
         rota = calcular_rota(df)
-        resultado = df.iloc[rota].reset_index(drop=True)
+        st.session_state.resultado = df.iloc[rota].reset_index(drop=True)
 
-        st.subheader("Ordem otimizada")
-        st.dataframe(resultado)
+if st.session_state.resultado is not None:
+    resultado = st.session_state.resultado
 
-        centro = [resultado['lat'].mean(), resultado['lon'].mean()]
-        mapa = folium.Map(location=centro, zoom_start=7)
+    st.subheader("✅ Ordem otimizada")
+    st.dataframe(resultado)
 
-        pontos = []
+    centro = [resultado['lat'].mean(), resultado['lon'].mean()]
+    mapa = folium.Map(location=centro, zoom_start=7)
 
-        for i,row in resultado.iterrows():
-            lat,lon = row['lat'], row['lon']
-            pontos.append((lat,lon))
+    pontos = []
+    for i,row in resultado.iterrows():
+        lat,lon = row['lat'], row['lon']
+        pontos.append((lat,lon))
+        folium.Marker([lat,lon], tooltip=f"Parada {i+1}").add_to(mapa)
 
-            folium.Marker([lat,lon], tooltip=f"Parada {i+1}").add_to(mapa)
+    folium.PolyLine(pontos).add_to(mapa)
 
-        folium.PolyLine(pontos).add_to(mapa)
-
-        st_folium(mapa, width=800, height=500)
+    st.subheader("🗺️ Mapa da rota")
+    st_folium(mapa, width=800, height=500)
