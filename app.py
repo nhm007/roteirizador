@@ -5,7 +5,7 @@ import math
 
 st.set_page_config(page_title="Roteirizador", layout="wide")
 
-st.title("Roteirizador Simples (OK)")
+st.title("🚚 Roteirizador Otimizado (v3)")
 
 file = st.file_uploader("Enviar Excel", type=["xlsx"])
 
@@ -27,7 +27,10 @@ def calcular_rota(df):
     routing.SetArcCostEvaluatorOfAllVehicles(transit)
 
     params = pywrapcp.DefaultRoutingSearchParameters()
-    params.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+
+    params.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.AUTOMATIC
+    params.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+    params.time_limit.seconds = 5
 
     solution = routing.SolveWithParameters(params)
 
@@ -41,7 +44,11 @@ def calcular_rota(df):
 
 if file:
     df = pd.read_excel(file)
+
     df.columns = df.columns.str.lower()
+
+    df['lat'] = df['lat'].astype(str).str.replace(',', '.')
+    df['lon'] = df['lon'].astype(str).str.replace(',', '.')
 
     df['lat'] = pd.to_numeric(df['lat'], errors='coerce')
     df['lon'] = pd.to_numeric(df['lon'], errors='coerce')
@@ -52,9 +59,14 @@ if file:
         st.error("Arquivo inválido")
         st.stop()
 
+    st.subheader("Dados carregados")
     st.dataframe(df)
 
-    if st.button("Gerar rota"):
+    if st.button("Gerar rota otimizada"):
         rota = calcular_rota(df)
-        st.dataframe(df.iloc[rota].reset_index(drop=True))
-        st.success("OK")
+        resultado = df.iloc[rota].reset_index(drop=True)
+
+        st.subheader("Ordem otimizada")
+        st.dataframe(resultado)
+
+        st.success("Rota otimizada com sucesso!")
