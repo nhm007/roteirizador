@@ -2,10 +2,12 @@ import streamlit as st
 import pandas as pd
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 import math
+import folium
+from streamlit_folium import st_folium
 
 st.set_page_config(page_title="Roteirizador", layout="wide")
 
-st.title("🚚 Roteirizador Otimizado (v3)")
+st.title("🗺️ Roteirizador com Mapa")
 
 file = st.file_uploader("Enviar Excel", type=["xlsx"])
 
@@ -27,14 +29,13 @@ def calcular_rota(df):
     routing.SetArcCostEvaluatorOfAllVehicles(transit)
 
     params = pywrapcp.DefaultRoutingSearchParameters()
-
     params.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.AUTOMATIC
     params.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
     params.time_limit.seconds = 5
 
     solution = routing.SolveWithParameters(params)
 
-    rota=[]
+    rota = []
     idx = routing.Start(0)
     while not routing.IsEnd(idx):
         rota.append(manager.IndexToNode(idx))
@@ -59,14 +60,26 @@ if file:
         st.error("Arquivo inválido")
         st.stop()
 
-    st.subheader("Dados carregados")
     st.dataframe(df)
 
-    if st.button("Gerar rota otimizada"):
+    if st.button("Gerar rota"):
         rota = calcular_rota(df)
         resultado = df.iloc[rota].reset_index(drop=True)
 
         st.subheader("Ordem otimizada")
         st.dataframe(resultado)
 
-        st.success("Rota otimizada com sucesso!")
+        centro = [resultado['lat'].mean(), resultado['lon'].mean()]
+        mapa = folium.Map(location=centro, zoom_start=7)
+
+        pontos = []
+
+        for i,row in resultado.iterrows():
+            lat,lon = row['lat'], row['lon']
+            pontos.append((lat,lon))
+
+            folium.Marker([lat,lon], tooltip=f"Parada {i+1}").add_to(mapa)
+
+        folium.PolyLine(pontos).add_to(mapa)
+
+        st_folium(mapa, width=800, height=500)
