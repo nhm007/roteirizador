@@ -5,68 +5,56 @@ import math
 
 st.set_page_config(page_title="Roteirizador", layout="wide")
 
-st.title("🚚 Roteirizador Simples")
-
-st.write("Faça upload de um Excel com colunas: lat, lon")
+st.title("Roteirizador Simples (OK)")
 
 file = st.file_uploader("Enviar Excel", type=["xlsx"])
 
 def calcular_rota(df):
-
     coords = list(zip(df['lat'], df['lon']))
 
     def dist(a, b):
         return int(math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2) * 100000)
 
-    distance_matrix = [
-        [dist(a, b) for b in coords]
-        for a in coords
-    ]
+    matrix = [[dist(a,b) for b in coords] for a in coords]
 
-    manager = pywrapcp.RoutingIndexManager(len(distance_matrix), 1, 0)
+    manager = pywrapcp.RoutingIndexManager(len(matrix), 1, 0)
     routing = pywrapcp.RoutingModel(manager)
 
-    def distance_callback(from_index, to_index):
-        return distance_matrix[
-            manager.IndexToNode(from_index)
-        ][
-            manager.IndexToNode(to_index)
-        ]
+    def callback(i,j):
+        return matrix[manager.IndexToNode(i)][manager.IndexToNode(j)]
 
-    transit_callback_index = routing.RegisterTransitCallback(distance_callback)
-    routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
+    transit = routing.RegisterTransitCallback(callback)
+    routing.SetArcCostEvaluatorOfAllVehicles(transit)
 
-    search_parameters = pywrapcp.DefaultRoutingSearchParameters()
-    search_parameters.first_solution_strategy = (
-        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
-    )
+    params = pywrapcp.DefaultRoutingSearchParameters()
+    params.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
 
-    solution = routing.SolveWithParameters(search_parameters)
+    solution = routing.SolveWithParameters(params)
 
-    rota = []
-    index = routing.Start(0)
-
-    while not routing.IsEnd(index):
-        node = manager.IndexToNode(index)
-        rota.append(node)
-        index = solution.Value(routing.NextVar(index))
+    rota=[]
+    idx = routing.Start(0)
+    while not routing.IsEnd(idx):
+        rota.append(manager.IndexToNode(idx))
+        idx = solution.Value(routing.NextVar(idx))
 
     return rota
 
-
 if file:
     df = pd.read_excel(file)
+    df.columns = df.columns.str.lower()
 
-    st.subheader("📊 Dados carregados")
+    df['lat'] = pd.to_numeric(df['lat'], errors='coerce')
+    df['lon'] = pd.to_numeric(df['lon'], errors='coerce')
+
+    df = df.dropna(subset=['lat','lon'])
+
+    if df.empty:
+        st.error("Arquivo inválido")
+        st.stop()
+
     st.dataframe(df)
 
-    if st.button("Gerar rota otimizada"):
-
+    if st.button("Gerar rota"):
         rota = calcular_rota(df)
-
-        df_rota = df.iloc[rota].reset_index(drop=True)
-
-        st.subheader("✅ Ordem otimizada")
-        st.dataframe(df_rota)
-
-        st.success("Rota gerada com sucesso!")
+        st.dataframe(df.iloc[rota].reset_index(drop=True))
+        st.success("OK")
