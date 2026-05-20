@@ -4,17 +4,18 @@ from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 import math
 import folium
 from streamlit_folium import st_folium
+from io import BytesIO
 
 st.set_page_config(page_title="Roteirizador PRO", layout="wide")
 
-st.title("🚀 Roteirizador PRO")
+st.title("🚀 Roteirizador PRO (v2 corrigido)")
 
 file = st.file_uploader("Enviar Excel", type=["xlsx"])
 
 if "resultado" not in st.session_state:
     st.session_state.resultado = None
 
-# distancia haversine (km)
+# distância haversine (km)
 def haversine(a, b):
     R = 6371
     lat1, lon1 = math.radians(a[0]), math.radians(a[1])
@@ -72,18 +73,18 @@ if file:
     inicio = st.number_input("Ponto inicial (linha)", min_value=0, max_value=len(df)-1, value=0)
 
     col1, col2 = st.columns(2)
+
     if col1.button("Gerar rota"):
         rota = calcular_rota(df, inicio)
         res = df.iloc[rota].reset_index(drop=True)
 
-        # calcular distância e tempo
         distancias = [0]
         tempo = [0]
 
         for i in range(1, len(res)):
             d = haversine((res.loc[i-1,'lat'], res.loc[i-1,'lon']), (res.loc[i,'lat'], res.loc[i,'lon']))
             distancias.append(round(d,2))
-            tempo.append(round(d/60*60,2))  # 60km/h -> minutos
+            tempo.append(round(d/60*60,2))
 
         res['dist_km'] = distancias
         res['tempo_min'] = tempo
@@ -100,10 +101,16 @@ if st.session_state.resultado is not None:
     st.subheader("Resultado")
     st.dataframe(resultado)
 
-    # download excel
-    excel = resultado.to_excel(index=False, engine='openpyxl')
+    # ✅ export Excel corrigido
+    buffer = BytesIO()
+    resultado.to_excel(buffer, index=False, engine='openpyxl')
 
-    st.download_button("📥 Baixar Excel", data=excel, file_name="rota.xlsx")
+    st.download_button(
+        "📥 Baixar Excel",
+        data=buffer.getvalue(),
+        file_name="rota.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
     centro = [resultado['lat'].mean(), resultado['lon'].mean()]
     mapa = folium.Map(location=centro, zoom_start=7)
