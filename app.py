@@ -9,8 +9,8 @@ import requests
 
 API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImRlYzE4OTZhMTQzNjQ1MDA5NWFkZTA2NTY4MDZjMDM0IiwiaCI6Im11cm11cjY0In0="
 
-st.set_page_config(page_title="Roteirizador API v4", layout="wide")
-st.title("🚀 Roteirizador API v4 (Estável)")
+st.set_page_config(page_title="Roteirizador API v5", layout="wide")
+st.title("🚀 Roteirizador API v5 (Compatível ORS)")
 
 file = st.file_uploader("Enviar Excel", type=["xlsx"])
 
@@ -51,7 +51,7 @@ def calcular_rota(df, inicio):
 
     return rota
 
-# rota real segura
+# rota real robusta (compatível features e routes)
 
 def rota_real(coords):
     try:
@@ -72,15 +72,22 @@ def rota_real(coords):
 
         data = response.json()
 
-        if "features" not in data:
-            st.error(f"Erro ORS: {data}")
-            return None, None, None
+        # formato antigo
+        if "features" in data:
+            dist = data["features"][0]["properties"]["summary"]["distance"] / 1000
+            tempo = data["features"][0]["properties"]["summary"]["duration"] / 60
+            geometry = data["features"][0]["geometry"]["coordinates"]
+            return dist, tempo, geometry
 
-        dist = data["features"][0]["properties"]["summary"]["distance"] / 1000
-        tempo = data["features"][0]["properties"]["summary"]["duration"] / 60
-        geometry = data["features"][0]["geometry"]["coordinates"]
+        # formato novo
+        if "routes" in data:
+            dist = data["routes"][0]["summary"]["distance"] / 1000
+            tempo = data["routes"][0]["summary"]["duration"] / 60
+            geometry = data["routes"][0].get("geometry", None)
+            return dist, tempo, geometry
 
-        return dist, tempo, geometry
+        st.error(f"Formato inesperado: {data}")
+        return None, None, None
 
     except Exception as e:
         st.error(f"Erro inesperado: {e}")
@@ -143,11 +150,15 @@ if st.session_state.resultado is not None:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    # mapa
+    # mapa com fallback
     centro = [resultado['lat'].mean(), resultado['lon'].mean()]
     mapa = folium.Map(location=centro, zoom_start=6)
 
-    rota_coords = [(c[1], c[0]) for c in geometry]
+    if isinstance(geometry, list):
+        rota_coords = [(c[1], c[0]) for c in geometry]
+    else:
+        rota_coords = [(row['lat'], row['lon']) for _, row in resultado.iterrows()]
+
     folium.PolyLine(rota_coords, color="blue").add_to(mapa)
 
     for i,row in resultado.iterrows():
