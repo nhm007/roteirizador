@@ -7,18 +7,18 @@ from streamlit_folium import st_folium
 from io import BytesIO
 import requests
 
-# ✅ SUA API KEY ORS
 API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImRlYzE4OTZhMTQzNjQ1MDA5NWFkZTA2NTY4MDZjMDM0IiwiaCI6Im11cm11cjY0In0="
 
-st.set_page_config(page_title="Roteirizador PRO API", layout="wide")
-st.title("🗺️ Roteirizador com Rotas Reais (API)")
+st.set_page_config(page_title="Roteirizador API v4", layout="wide")
+st.title("🚀 Roteirizador API v4 (Estável)")
 
 file = st.file_uploader("Enviar Excel", type=["xlsx"])
 
 if "resultado" not in st.session_state:
     st.session_state.resultado = None
 
-# 🔧 otimização local
+# otimização local
+
 def calcular_rota(df, inicio):
     coords = list(zip(df['lat'], df['lon']))
 
@@ -51,29 +51,40 @@ def calcular_rota(df, inicio):
 
     return rota
 
-# 🌍 rota real via API
+# rota real segura
 
 def rota_real(coords):
-    url = "https://api.openrouteservice.org/v2/directions/driving-car"
+    try:
+        url = "https://api.openrouteservice.org/v2/directions/driving-car"
 
-    body = {
-        "coordinates": [[c[1], c[0]] for c in coords]
-    }
+        body = {"coordinates": [[c[1], c[0]] for c in coords]}
 
-    headers = {
-        "Authorization": API_KEY,
-        "Content-Type": "application/json"
-    }
+        headers = {
+            "Authorization": API_KEY,
+            "Content-Type": "application/json"
+        }
 
-    response = requests.post(url, json=body, headers=headers)
-    data = response.json()
+        response = requests.post(url, json=body, headers=headers)
 
-    dist = data["features"][0]["properties"]["summary"]["distance"] / 1000
-    tempo = data["features"][0]["properties"]["summary"]["duration"] / 60
+        if response.status_code != 200:
+            st.error(f"Erro API: {response.text}")
+            return None, None, None
 
-    geometry = data["features"][0]["geometry"]["coordinates"]
+        data = response.json()
 
-    return dist, tempo, geometry
+        if "features" not in data:
+            st.error(f"Erro ORS: {data}")
+            return None, None, None
+
+        dist = data["features"][0]["properties"]["summary"]["distance"] / 1000
+        tempo = data["features"][0]["properties"]["summary"]["duration"] / 60
+        geometry = data["features"][0]["geometry"]["coordinates"]
+
+        return dist, tempo, geometry
+
+    except Exception as e:
+        st.error(f"Erro inesperado: {e}")
+        return None, None, None
 
 
 if file:
@@ -95,18 +106,20 @@ if file:
 
     col1, col2 = st.columns(2)
 
-    if col1.button("Gerar rota real"):
+    if col1.button("🚀 Gerar rota real"):
         rota = calcular_rota(df, inicio)
         resultado = df.iloc[rota].reset_index(drop=True)
 
         coords = list(zip(resultado['lat'], resultado['lon']))
         dist, tempo, geometry = rota_real(coords)
 
-        resultado['ordem'] = range(1, len(resultado)+1)
+        if dist is None:
+            st.stop()
 
+        resultado['ordem'] = range(1, len(resultado)+1)
         st.session_state.resultado = (resultado, dist, tempo, geometry)
 
-    if col2.button("Nova rota"):
+    if col2.button("🔄 Nova rota"):
         st.session_state.resultado = None
 
 
@@ -119,15 +132,20 @@ if st.session_state.resultado is not None:
     st.success(f"Distância total: {dist:.2f} km")
     st.success(f"Tempo total: {tempo:.2f} min")
 
-    # download
+    # export excel
     buffer = BytesIO()
     resultado.to_excel(buffer, index=False, engine='openpyxl')
 
-    st.download_button("📥 Baixar Excel", data=buffer.getvalue(), file_name="rota_real.xlsx")
+    st.download_button(
+        "📥 Baixar Excel",
+        data=buffer.getvalue(),
+        file_name="rota_real.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
     # mapa
     centro = [resultado['lat'].mean(), resultado['lon'].mean()]
-    mapa = folium.Map(location=centro, zoom_start=7)
+    mapa = folium.Map(location=centro, zoom_start=6)
 
     rota_coords = [(c[1], c[0]) for c in geometry]
     folium.PolyLine(rota_coords, color="blue").add_to(mapa)
@@ -135,4 +153,4 @@ if st.session_state.resultado is not None:
     for i,row in resultado.iterrows():
         folium.Marker([row['lat'], row['lon']], tooltip=f"Parada {i+1}").add_to(mapa)
 
-    st_folium(mapa, width=800, height=500)
+    st_folium(mapa, width=900, height=500)
