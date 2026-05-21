@@ -5,30 +5,27 @@ import math
 import folium
 from streamlit_folium import st_folium
 from io import BytesIO
+import requests
 
-st.set_page_config(page_title="Roteirizador PRO", layout="wide")
+# ✅ SUA API KEY ORS
+API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImRlYzE4OTZhMTQzNjQ1MDA5NWFkZTA2NTY4MDZjMDM0IiwiaCI6Im11cm11cjY0In0="
 
-st.title("🚀 Roteirizador PRO (v2 corrigido)")
+st.set_page_config(page_title="Roteirizador PRO API", layout="wide")
+st.title("🗺️ Roteirizador com Rotas Reais (API)")
 
 file = st.file_uploader("Enviar Excel", type=["xlsx"])
 
 if "resultado" not in st.session_state:
     st.session_state.resultado = None
 
-# distância haversine (km)
-def haversine(a, b):
-    R = 6371
-    lat1, lon1 = math.radians(a[0]), math.radians(a[1])
-    lat2, lon2 = math.radians(b[0]), math.radians(b[1])
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    x = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
-    return 2 * R * math.asin(math.sqrt(x))
-
-
+# 🔧 otimização local
 def calcular_rota(df, inicio):
     coords = list(zip(df['lat'], df['lon']))
-    matrix = [[int(haversine(a,b)*1000) for b in coords] for a in coords]
+
+    def dist(a, b):
+        return int(math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2) * 100000)
+
+    matrix = [[dist(a,b) for b in coords] for a in coords]
 
     manager = pywrapcp.RoutingIndexManager(len(matrix), 1, inicio)
     routing = pywrapcp.RoutingModel(manager)
@@ -54,6 +51,30 @@ def calcular_rota(df, inicio):
 
     return rota
 
+# 🌍 rota real via API
+
+def rota_real(coords):
+    url = "https://api.openrouteservice.org/v2/directions/driving-car"
+
+    body = {
+        "coordinates": [[c[1], c[0]] for c in coords]
+    }
+
+    headers = {
+        "Authorization": API_KEY,
+        "Content-Type": "application/json"
+    }
+
+    response = requests.post(url, json=body, headers=headers)
+    data = response.json()
+
+    dist = data["features"][0]["properties"]["summary"]["distance"] / 1000
+    tempo = data["features"][0]["properties"]["summary"]["duration"] / 60
+
+    geometry = data["features"][0]["geometry"]["coordinates"]
+
+    return dist, tempo, geometry
+
 
 if file:
     df = pd.read_excel(file)
@@ -70,57 +91,48 @@ if file:
 
     st.dataframe(df)
 
-    inicio = st.number_input("Ponto inicial (linha)", min_value=0, max_value=len(df)-1, value=0)
+    inicio = st.number_input("Ponto inicial", 0, len(df)-1, 0)
 
     col1, col2 = st.columns(2)
 
-    if col1.button("Gerar rota"):
+    if col1.button("Gerar rota real"):
         rota = calcular_rota(df, inicio)
-        res = df.iloc[rota].reset_index(drop=True)
+        resultado = df.iloc[rota].reset_index(drop=True)
 
-        distancias = [0]
-        tempo = [0]
+        coords = list(zip(resultado['lat'], resultado['lon']))
+        dist, tempo, geometry = rota_real(coords)
 
-        for i in range(1, len(res)):
-            d = haversine((res.loc[i-1,'lat'], res.loc[i-1,'lon']), (res.loc[i,'lat'], res.loc[i,'lon']))
-            distancias.append(round(d,2))
-            tempo.append(round(d/60*60,2))
+        resultado['ordem'] = range(1, len(resultado)+1)
 
-        res['dist_km'] = distancias
-        res['tempo_min'] = tempo
-
-        st.session_state.resultado = res
+        st.session_state.resultado = (resultado, dist, tempo, geometry)
 
     if col2.button("Nova rota"):
         st.session_state.resultado = None
 
 
 if st.session_state.resultado is not None:
-    resultado = st.session_state.resultado
+    resultado, dist, tempo, geometry = st.session_state.resultado
 
-    st.subheader("Resultado")
+    st.subheader("✅ Resultado")
     st.dataframe(resultado)
 
-    # ✅ export Excel corrigido
+    st.success(f"Distância total: {dist:.2f} km")
+    st.success(f"Tempo total: {tempo:.2f} min")
+
+    # download
     buffer = BytesIO()
     resultado.to_excel(buffer, index=False, engine='openpyxl')
 
-    st.download_button(
-        "📥 Baixar Excel",
-        data=buffer.getvalue(),
-        file_name="rota.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    st.download_button("📥 Baixar Excel", data=buffer.getvalue(), file_name="rota_real.xlsx")
 
+    # mapa
     centro = [resultado['lat'].mean(), resultado['lon'].mean()]
     mapa = folium.Map(location=centro, zoom_start=7)
 
-    pontos = []
-    for i,row in resultado.iterrows():
-        lat,lon = row['lat'], row['lon']
-        pontos.append((lat,lon))
-        folium.Marker([lat,lon], tooltip=f"Parada {i+1}").add_to(mapa)
+    rota_coords = [(c[1], c[0]) for c in geometry]
+    folium.PolyLine(rota_coords, color="blue").add_to(mapa)
 
-    folium.PolyLine(pontos).add_to(mapa)
+    for i,row in resultado.iterrows():
+        folium.Marker([row['lat'], row['lon']], tooltip=f"Parada {i+1}").add_to(mapa)
 
     st_folium(mapa, width=800, height=500)
